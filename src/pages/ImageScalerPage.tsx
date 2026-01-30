@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
     ImageIcon,
     Upload,
@@ -10,7 +10,8 @@ import {
     Loader2,
     Link2,
     Link2Off,
-    RotateCcw
+    CheckCircle2,
+    Sparkles
 } from 'lucide-react';
 import JSZip from 'jszip';
 
@@ -40,9 +41,7 @@ const presets: Preset[] = [
     { name: 'Instagram Post', width: 1080, height: 1080, icon: '📷' },
     { name: 'Instagram Story', width: 1080, height: 1920, icon: '📱' },
     { name: 'Facebook Ad', width: 1200, height: 628, icon: '📘' },
-    { name: 'Twitter Post', width: 1200, height: 675, icon: '🐦' },
-    { name: 'LinkedIn Post', width: 1200, height: 627, icon: '💼' },
-    { name: 'YouTube Thumbnail', width: 1280, height: 720, icon: '▶️' },
+    { name: 'YouTube Thumb', width: 1280, height: 720, icon: '▶️' },
     { name: 'Ad Square', width: 640, height: 640, icon: '🎯' },
     { name: 'Custom', width: 0, height: 0, icon: '⚙️' },
 ];
@@ -58,7 +57,7 @@ const formatFileSize = (bytes: number) => {
 export function ImageScalerPage() {
     const [images, setImages] = useState<ScaledImage[]>([]);
     const [isDragging, setIsDragging] = useState(false);
-    const [selectedPreset, setSelectedPreset] = useState<Preset>(presets[6]); // Ad Square default
+    const [selectedPreset, setSelectedPreset] = useState<Preset>(presets[4]);
     const [customWidth, setCustomWidth] = useState(640);
     const [customHeight, setCustomHeight] = useState(640);
     const [maintainAspectRatio, setMaintainAspectRatio] = useState(false);
@@ -66,11 +65,20 @@ export function ImageScalerPage() {
     const [quality, setQuality] = useState(92);
     const [isProcessing, setIsProcessing] = useState(false);
     const [previewImage, setPreviewImage] = useState<ScaledImage | null>(null);
+    const [showSuccess, setShowSuccess] = useState(false);
+    const [successCount, setSuccessCount] = useState(0);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
 
     const targetWidth = selectedPreset.width || customWidth;
     const targetHeight = selectedPreset.height || customHeight;
+
+    // Auto-hide success notification
+    useEffect(() => {
+        if (showSuccess) {
+            const timer = setTimeout(() => setShowSuccess(false), 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [showSuccess]);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -91,11 +99,9 @@ export function ImageScalerPage() {
 
     const addImages = async (files: File[]) => {
         const newImages: ScaledImage[] = [];
-
         for (const file of files) {
             const url = URL.createObjectURL(file);
             const dimensions = await getImageDimensions(url);
-
             newImages.push({
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 originalName: file.name,
@@ -108,7 +114,6 @@ export function ImageScalerPage() {
                 status: 'pending',
             });
         }
-
         setImages(prev => [...prev, ...newImages]);
     };
 
@@ -150,17 +155,14 @@ export function ImageScalerPage() {
                 canvas.width = image.targetWidth;
                 canvas.height = image.targetHeight;
 
-                // Fill with white/transparent background
                 if (outputFormat === 'jpg') {
                     ctx.fillStyle = '#ffffff';
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                 }
 
-                // Center the image if aspect ratio is maintained
                 const x = (canvas.width - finalWidth) / 2;
                 const y = (canvas.height - finalHeight) / 2;
 
-                // Use high-quality scaling
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
                 ctx.drawImage(img, x, y, finalWidth, finalHeight);
@@ -170,13 +172,7 @@ export function ImageScalerPage() {
                     (blob) => {
                         if (blob) {
                             const outputUrl = URL.createObjectURL(blob);
-                            resolve({
-                                ...image,
-                                status: 'done',
-                                outputUrl,
-                                outputBlob: blob,
-                                outputSize: blob.size,
-                            });
+                            resolve({ ...image, status: 'done', outputUrl, outputBlob: blob, outputSize: blob.size });
                         } else {
                             resolve({ ...image, status: 'error' });
                         }
@@ -192,8 +188,8 @@ export function ImageScalerPage() {
 
     const processAllImages = async () => {
         setIsProcessing(true);
+        setShowSuccess(false);
 
-        // Update all images with current target dimensions
         const updatedImages = images.map(img => ({
             ...img,
             targetWidth,
@@ -202,15 +198,16 @@ export function ImageScalerPage() {
         }));
         setImages(updatedImages);
 
-        // Process each image
-        const results: ScaledImage[] = [];
+        let doneCount = 0;
         for (const image of updatedImages) {
             const result = await scaleImage(image);
-            results.push(result);
+            if (result.status === 'done') doneCount++;
             setImages(prev => prev.map(img => img.id === result.id ? result : img));
         }
 
         setIsProcessing(false);
+        setSuccessCount(doneCount);
+        setShowSuccess(true);
     };
 
     const downloadImage = (image: ScaledImage) => {
@@ -267,344 +264,294 @@ export function ImageScalerPage() {
             if (img.outputUrl) URL.revokeObjectURL(img.outputUrl);
         });
         setImages([]);
+        setShowSuccess(false);
     };
 
-    const resetSettings = () => {
-        setSelectedPreset(presets[6]);
-        setCustomWidth(640);
-        setCustomHeight(640);
-        setMaintainAspectRatio(false);
-        setOutputFormat('png');
-        setQuality(92);
-    };
+    const doneCount = images.filter(img => img.status === 'done').length;
+    const totalCount = images.length;
 
     return (
-        <div className="min-h-[calc(100vh-180px)] py-12 px-8">
-            <div className="max-w-6xl mx-auto">
-                {/* Page Header */}
-                <div className="text-center mb-12">
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl glow-border mb-6">
-                        <ImageIcon size={32} className="text-[var(--color-glow)]" />
+        <div className="h-[calc(100vh-140px)] flex flex-col py-4 px-6 relative">
+            {/* Success Toast Notification */}
+            {showSuccess && (
+                <div className="fixed top-24 left-1/2 -translate-x-1/2 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+                    <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-[var(--color-active-green)] text-black shadow-[0_0_30px_var(--color-active-green-glow)]">
+                        <CheckCircle2 size={22} />
+                        <div>
+                            <p className="font-semibold">Scaling Complete!</p>
+                            <p className="text-sm opacity-80">{successCount} image{successCount !== 1 ? 's' : ''} scaled successfully</p>
+                        </div>
+                        <button onClick={() => setShowSuccess(false)} className="ml-2 p-1 rounded hover:bg-black/10">
+                            <X size={16} />
+                        </button>
                     </div>
-                    <h1 className="text-4xl font-bold text-white mb-4">Image Scaler</h1>
-                    <p className="text-[var(--color-text-secondary)] max-w-xl mx-auto">
-                        Resize multiple images to exact dimensions instantly. Perfect for ads, social media,
-                        and any platform with specific size requirements.
-                    </p>
+                </div>
+            )}
+
+            <div className="max-w-6xl mx-auto w-full flex flex-col h-full">
+                {/* Compact Header */}
+                <div className="flex items-center justify-between mb-4 flex-shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl glow-border flex items-center justify-center">
+                            <ImageIcon size={20} className="text-[var(--color-glow)]" />
+                        </div>
+                        <div>
+                            <h1 className="text-xl font-bold text-white">Image Scaler</h1>
+                            <p className="text-xs text-[var(--color-text-muted)]">Resize images to exact dimensions</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        {/* Status Summary */}
+                        {totalCount > 0 && (
+                            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[var(--color-dark-600)]">
+                                {doneCount === totalCount && doneCount > 0 ? (
+                                    <>
+                                        <Check size={14} className="text-[var(--color-active-green)]" />
+                                        <span className="text-xs text-[var(--color-active-green)] font-medium">All Done!</span>
+                                    </>
+                                ) : (
+                                    <span className="text-xs text-[var(--color-text-muted)]">
+                                        {doneCount}/{totalCount} scaled
+                                    </span>
+                                )}
+                            </div>
+                        )}
+                        <div className="text-sm text-[var(--color-text-secondary)]">
+                            Output: <span className="text-white font-medium">{targetWidth}×{targetHeight}</span>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    {/* Left Column - Settings */}
-                    <div className="lg:col-span-1 space-y-6">
-                        {/* Size Presets */}
-                        <div className="p-6 rounded-2xl bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]">
-                            <div className="flex items-center justify-between mb-4">
-                                <h3 className="font-semibold text-white">Size Preset</h3>
-                                <button
-                                    onClick={resetSettings}
-                                    className="p-1.5 rounded-lg text-[var(--color-text-muted)] hover:text-white hover:bg-[var(--color-dark-500)] transition-colors"
-                                    title="Reset settings"
-                                >
-                                    <RotateCcw size={16} />
-                                </button>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
+                {/* Main Content - Grid */}
+                <div className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-4 min-h-0">
+                    {/* Left: Settings Panel */}
+                    <div className="lg:col-span-1 flex flex-col gap-3 overflow-y-auto">
+                        {/* Presets */}
+                        <div className="p-3 rounded-xl bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]">
+                            <h3 className="text-xs font-semibold text-white mb-2">Presets</h3>
+                            <div className="grid grid-cols-2 gap-1.5">
                                 {presets.map((preset) => (
                                     <button
                                         key={preset.name}
                                         onClick={() => setSelectedPreset(preset)}
-                                        className={`p-3 rounded-xl text-left transition-all ${selectedPreset.name === preset.name
-                                            ? 'bg-[var(--color-accent-primary)] text-white'
-                                            : 'bg-[var(--color-dark-600)] text-[var(--color-text-secondary)] hover:bg-[var(--color-dark-500)]'
+                                        className={`p-2 rounded-lg text-left transition-all text-xs ${selectedPreset.name === preset.name
+                                                ? 'bg-[var(--color-glow)]/20 border border-[var(--color-glow)] text-white'
+                                                : 'bg-[var(--color-dark-600)] text-[var(--color-text-secondary)] hover:bg-[var(--color-dark-500)]'
                                             }`}
                                     >
-                                        <span className="text-lg">{preset.icon}</span>
-                                        <p className="text-xs font-medium mt-1 truncate">{preset.name}</p>
-                                        {preset.width > 0 && (
-                                            <p className="text-xs opacity-70">{preset.width}×{preset.height}</p>
-                                        )}
+                                        <span>{preset.icon}</span>
+                                        <p className="font-medium truncate">{preset.name}</p>
+                                        {preset.width > 0 && <p className="text-[10px] opacity-70">{preset.width}×{preset.height}</p>}
                                     </button>
                                 ))}
                             </div>
                         </div>
 
                         {/* Custom Dimensions */}
-                        <div className="p-6 rounded-2xl bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]">
-                            <h3 className="font-semibold text-white mb-4">Dimensions</h3>
-                            <div className="flex items-center gap-3">
-                                <div className="flex-1">
-                                    <label className="text-xs text-[var(--color-text-muted)] mb-1 block">Width</label>
-                                    <input
-                                        type="number"
-                                        value={selectedPreset.width || customWidth}
-                                        onChange={(e) => {
-                                            const val = parseInt(e.target.value) || 0;
-                                            setCustomWidth(val);
-                                            setSelectedPreset(presets.find(p => p.name === 'Custom')!);
-                                        }}
-                                        className="w-full px-3 py-2 rounded-lg bg-[var(--color-dark-600)] text-white border border-[var(--color-dark-400)] focus:outline-none focus:border-[var(--color-accent-primary)]"
-                                    />
-                                </div>
-                                <div className="pt-5">
-                                    <button
-                                        onClick={() => setMaintainAspectRatio(!maintainAspectRatio)}
-                                        className={`p-2 rounded-lg transition-colors ${maintainAspectRatio
-                                            ? 'bg-[var(--color-accent-primary)] text-white'
-                                            : 'bg-[var(--color-dark-600)] text-[var(--color-text-muted)]'
-                                            }`}
-                                        title={maintainAspectRatio ? 'Aspect ratio locked' : 'Aspect ratio unlocked'}
-                                    >
-                                        {maintainAspectRatio ? <Link2 size={18} /> : <Link2Off size={18} />}
-                                    </button>
-                                </div>
-                                <div className="flex-1">
-                                    <label className="text-xs text-[var(--color-text-muted)] mb-1 block">Height</label>
-                                    <input
-                                        type="number"
-                                        value={selectedPreset.height || customHeight}
-                                        onChange={(e) => {
-                                            const val = parseInt(e.target.value) || 0;
-                                            setCustomHeight(val);
-                                            setSelectedPreset(presets.find(p => p.name === 'Custom')!);
-                                        }}
-                                        className="w-full px-3 py-2 rounded-lg bg-[var(--color-dark-600)] text-white border border-[var(--color-dark-400)] focus:outline-none focus:border-[var(--color-accent-primary)]"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Aspect Ratio Info */}
-                            <div className="mt-3 flex items-center gap-2">
-                                <div className={`status-bulb ${maintainAspectRatio ? 'active' : 'inactive'} w-2 h-2`} />
-                                <span className="text-xs text-[var(--color-text-muted)]">
-                                    {maintainAspectRatio ? 'Fit image within bounds, centered' : 'Stretch to exact dimensions'}
-                                </span>
+                        <div className="p-3 rounded-xl bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]">
+                            <h3 className="text-xs font-semibold text-white mb-2">Dimensions</h3>
+                            <div className="flex items-center gap-2">
+                                <input
+                                    type="number"
+                                    value={selectedPreset.width || customWidth}
+                                    onChange={(e) => {
+                                        setCustomWidth(parseInt(e.target.value) || 0);
+                                        setSelectedPreset(presets.find(p => p.name === 'Custom')!);
+                                    }}
+                                    className="w-full px-2 py-1.5 rounded text-xs bg-[var(--color-dark-600)] text-white border border-[var(--color-dark-400)] focus:outline-none focus:border-[var(--color-glow)]"
+                                    placeholder="Width"
+                                />
+                                <button
+                                    onClick={() => setMaintainAspectRatio(!maintainAspectRatio)}
+                                    className={`p-1.5 rounded transition-colors flex-shrink-0 ${maintainAspectRatio ? 'bg-[var(--color-glow)]/20 text-[var(--color-glow)]' : 'bg-[var(--color-dark-600)] text-[var(--color-text-muted)]'
+                                        }`}
+                                >
+                                    {maintainAspectRatio ? <Link2 size={14} /> : <Link2Off size={14} />}
+                                </button>
+                                <input
+                                    type="number"
+                                    value={selectedPreset.height || customHeight}
+                                    onChange={(e) => {
+                                        setCustomHeight(parseInt(e.target.value) || 0);
+                                        setSelectedPreset(presets.find(p => p.name === 'Custom')!);
+                                    }}
+                                    className="w-full px-2 py-1.5 rounded text-xs bg-[var(--color-dark-600)] text-white border border-[var(--color-dark-400)] focus:outline-none focus:border-[var(--color-glow)]"
+                                    placeholder="Height"
+                                />
                             </div>
                         </div>
 
                         {/* Output Options */}
-                        <div className="p-6 rounded-2xl bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]">
-                            <h3 className="font-semibold text-white mb-4">Output Options</h3>
-
-                            <div className="mb-4">
-                                <label className="text-xs text-[var(--color-text-muted)] mb-2 block">Format</label>
-                                <div className="flex gap-2">
-                                    {(['png', 'jpg', 'webp'] as const).map((format) => (
-                                        <button
-                                            key={format}
-                                            onClick={() => setOutputFormat(format)}
-                                            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${outputFormat === format
-                                                ? 'bg-[var(--color-accent-primary)] text-white'
-                                                : 'bg-[var(--color-dark-600)] text-[var(--color-text-secondary)] hover:bg-[var(--color-dark-500)]'
-                                                }`}
-                                        >
-                                            {format.toUpperCase()}
-                                        </button>
-                                    ))}
-                                </div>
+                        <div className="p-3 rounded-xl bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]">
+                            <h3 className="text-xs font-semibold text-white mb-2">Output</h3>
+                            <div className="flex gap-1 mb-2">
+                                {(['png', 'jpg', 'webp'] as const).map((format) => (
+                                    <button
+                                        key={format}
+                                        onClick={() => setOutputFormat(format)}
+                                        className={`flex-1 py-1.5 rounded text-xs font-medium transition-colors ${outputFormat === format
+                                                ? 'bg-[var(--color-glow)]/20 text-[var(--color-glow)] border border-[var(--color-glow)]'
+                                                : 'bg-[var(--color-dark-600)] text-[var(--color-text-secondary)]'
+                                            }`}
+                                    >
+                                        {format.toUpperCase()}
+                                    </button>
+                                ))}
                             </div>
-
-                            <div>
-                                <div className="flex items-center justify-between mb-2">
-                                    <label className="text-xs text-[var(--color-text-muted)]">Quality</label>
-                                    <span className="text-xs text-white font-medium">{quality}%</span>
-                                </div>
-                                <input
-                                    type="range"
-                                    min="10"
-                                    max="100"
-                                    value={quality}
-                                    onChange={(e) => setQuality(parseInt(e.target.value))}
-                                    className="w-full h-2 rounded-full bg-[var(--color-dark-500)] appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--color-accent-primary)]"
-                                />
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs text-[var(--color-text-muted)]">Quality</span>
+                                <span className="text-xs text-white">{quality}%</span>
                             </div>
+                            <input
+                                type="range"
+                                min="10"
+                                max="100"
+                                value={quality}
+                                onChange={(e) => setQuality(parseInt(e.target.value))}
+                                className="w-full h-1.5 mt-1 rounded-full bg-[var(--color-dark-500)] appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[var(--color-glow)]"
+                            />
                         </div>
                     </div>
 
-                    {/* Right Column - Upload & Images */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Upload Area */}
-                        <div
-                            onDragOver={handleDragOver}
-                            onDragLeave={handleDragLeave}
-                            onDrop={handleDrop}
-                            onClick={() => fileInputRef.current?.click()}
-                            className={`
-                relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-300
-                ${isDragging
-                                    ? 'border-[var(--color-accent-primary)] bg-[var(--color-accent-primary)]/5'
-                                    : 'border-[var(--color-dark-400)] hover:border-[var(--color-dark-300)] bg-[var(--color-dark-700)]/50'
-                                }
-              `}
-                        >
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                multiple
-                                accept="image/*"
-                                onChange={handleFileSelect}
-                                className="hidden"
-                            />
-                            <Upload size={48} className={`mx-auto mb-4 ${isDragging ? 'text-[var(--color-accent-primary)]' : 'text-[var(--color-text-muted)]'}`} />
-                            <h3 className="text-lg font-semibold text-white mb-2">
-                                {isDragging ? 'Drop images here' : 'Drag & drop images here'}
-                            </h3>
-                            <p className="text-sm text-[var(--color-text-muted)]">
-                                or click to browse • PNG, JPG, WebP, GIF supported
-                            </p>
-                        </div>
-
-                        {/* Images Grid */}
-                        {images.length > 0 && (
-                            <div>
-                                {/* Actions Bar */}
-                                <div className="flex items-center justify-between mb-4">
-                                    <span className="text-sm text-[var(--color-text-secondary)]">
-                                        {images.length} image{images.length !== 1 ? 's' : ''} • Output: {targetWidth}×{targetHeight}
-                                    </span>
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            onClick={clearAll}
-                                            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-[var(--color-text-muted)] hover:text-white hover:bg-[var(--color-dark-500)] transition-colors"
-                                        >
-                                            <Trash2 size={16} />
-                                            Clear All
+                    {/* Right: Upload & Images */}
+                    <div className="lg:col-span-3 flex flex-col min-h-0">
+                        {images.length === 0 ? (
+                            <div
+                                onDragOver={handleDragOver}
+                                onDragLeave={handleDragLeave}
+                                onDrop={handleDrop}
+                                onClick={() => fileInputRef.current?.click()}
+                                className={`flex-1 border-2 border-dashed rounded-xl flex flex-col items-center justify-center cursor-pointer transition-all ${isDragging
+                                        ? 'border-[var(--color-glow)] bg-[var(--color-glow)]/5'
+                                        : 'border-[var(--color-dark-400)] hover:border-[var(--color-dark-300)] bg-[var(--color-dark-700)]/50'
+                                    }`}
+                            >
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    onChange={handleFileSelect}
+                                    className="hidden"
+                                />
+                                <Upload size={40} className="mb-3 text-[var(--color-text-muted)]" />
+                                <h3 className="text-base font-semibold text-white mb-1">Drop images here</h3>
+                                <p className="text-xs text-[var(--color-text-muted)]">or click to browse</p>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col h-full min-h-0">
+                                {/* Actions */}
+                                <div className="flex items-center justify-between mb-2 flex-shrink-0">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-[var(--color-text-secondary)]">{images.length} image{images.length !== 1 ? 's' : ''}</span>
+                                        <button onClick={() => fileInputRef.current?.click()} className="text-xs text-[var(--color-glow)] hover:underline">+ Add</button>
+                                        <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={handleFileSelect} className="hidden" />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={clearAll} className="flex items-center gap-1 px-2 py-1 rounded text-xs text-[var(--color-text-muted)] hover:text-white hover:bg-[var(--color-dark-500)]">
+                                            <Trash2 size={12} /> Clear
                                         </button>
                                         {images.some(img => img.status === 'done') && (
-                                            <button
-                                                onClick={downloadAllAsZip}
-                                                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-[var(--color-dark-500)] text-white hover:bg-[var(--color-dark-400)] transition-colors"
-                                            >
-                                                <Download size={16} />
-                                                Download ZIP
+                                            <button onClick={downloadAllAsZip} className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium bg-[var(--color-active-green)] text-black shadow-[0_0_15px_var(--color-active-green-glow)]">
+                                                <Download size={12} /> Download All ({doneCount})
                                             </button>
                                         )}
-                                        <button
-                                            onClick={processAllImages}
-                                            disabled={isProcessing || images.length === 0}
-                                            className="flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium glow-button text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                                        >
-                                            {isProcessing ? (
-                                                <>
-                                                    <Loader2 size={16} className="animate-spin" />
-                                                    Processing...
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <ZoomIn size={16} />
-                                                    Scale All
-                                                </>
-                                            )}
-                                        </button>
+                                        {images.some(img => img.status === 'pending') && (
+                                            <button
+                                                onClick={processAllImages}
+                                                disabled={isProcessing}
+                                                className="flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium glow-button text-white disabled:opacity-50"
+                                            >
+                                                {isProcessing ? <><Loader2 size={12} className="animate-spin" /> Processing...</> : <><ZoomIn size={12} /> Scale All</>}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
 
                                 {/* Images Grid */}
-                                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                                    {images.map((image) => (
-                                        <div
-                                            key={image.id}
-                                            className="relative group rounded-xl overflow-hidden bg-[var(--color-dark-700)] border border-[var(--color-dark-500)]"
-                                        >
-                                            {/* Image Preview */}
+                                <div className="flex-1 overflow-y-auto rounded-xl border border-[var(--color-dark-500)] bg-[var(--color-dark-700)] p-2">
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                                        {images.map((image) => (
                                             <div
-                                                className="aspect-square relative cursor-pointer"
-                                                onClick={() => setPreviewImage(image)}
+                                                key={image.id}
+                                                className={`relative group rounded-lg overflow-hidden aspect-square transition-all duration-300 ${image.status === 'done'
+                                                        ? 'ring-2 ring-[var(--color-active-green)] shadow-[0_0_15px_var(--color-active-green-glow)]'
+                                                        : 'bg-[var(--color-dark-600)]'
+                                                    }`}
                                             >
                                                 <img
                                                     src={image.outputUrl || image.originalUrl}
                                                     alt={image.originalName}
-                                                    className="w-full h-full object-cover"
+                                                    className="w-full h-full object-cover cursor-pointer"
+                                                    onClick={() => setPreviewImage(image)}
                                                 />
-
-                                                {/* Status Overlay */}
                                                 {image.status === 'processing' && (
                                                     <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                                                        <Loader2 size={24} className="animate-spin text-white" />
+                                                        <Loader2 size={20} className="animate-spin text-white" />
                                                     </div>
                                                 )}
                                                 {image.status === 'done' && (
-                                                    <div className="absolute top-2 right-2">
-                                                        <div className="w-6 h-6 rounded-full bg-[var(--color-active-green)] flex items-center justify-center">
-                                                            <Check size={14} className="text-black" />
+                                                    <div className="absolute top-1 right-1 w-6 h-6 rounded-full bg-[var(--color-active-green)] flex items-center justify-center shadow-lg animate-in zoom-in duration-300">
+                                                        <Check size={14} className="text-black" />
+                                                    </div>
+                                                )}
+                                                {image.status === 'done' && (
+                                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5">
+                                                        <div className="flex items-center justify-center gap-1 text-[10px] text-[var(--color-active-green)] font-medium">
+                                                            <Sparkles size={10} />
+                                                            <span>Scaled</span>
                                                         </div>
                                                     </div>
                                                 )}
-                                            </div>
-
-                                            {/* Info Bar */}
-                                            <div className="p-2">
-                                                <p className="text-xs text-white truncate font-medium">{image.originalName}</p>
-                                                <div className="flex items-center justify-between mt-1">
-                                                    <span className="text-xs text-[var(--color-text-muted)]">
-                                                        {image.originalWidth}×{image.originalHeight}
-                                                    </span>
-                                                    {image.outputSize && (
-                                                        <span className="text-xs text-[var(--color-active-green)]">
-                                                            {formatFileSize(image.outputSize)}
-                                                        </span>
+                                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1">
+                                                    {image.status === 'done' && (
+                                                        <button onClick={(e) => { e.stopPropagation(); downloadImage(image); }} className="p-1.5 rounded bg-[var(--color-active-green)] text-black hover:bg-[var(--color-active-green)]/80">
+                                                            <Download size={14} />
+                                                        </button>
                                                     )}
+                                                    <button onClick={(e) => { e.stopPropagation(); removeImage(image.id); }} className="p-1.5 rounded bg-white/20 text-white hover:bg-red-500/80">
+                                                        <Trash2 size={14} />
+                                                    </button>
                                                 </div>
                                             </div>
-
-                                            {/* Hover Actions */}
-                                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                                                {image.status === 'done' && (
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); downloadImage(image); }}
-                                                        className="p-2 rounded-lg bg-white/20 text-white hover:bg-white/30 transition-colors"
-                                                        title="Download"
-                                                    >
-                                                        <Download size={18} />
-                                                    </button>
-                                                )}
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); removeImage(image.id); }}
-                                                    className="p-2 rounded-lg bg-white/20 text-white hover:bg-red-500/80 transition-colors"
-                                                    title="Remove"
-                                                >
-                                                    <Trash2 size={18} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                         )}
                     </div>
                 </div>
+            </div>
 
-                {/* Preview Modal */}
-                {previewImage && (
-                    <div
-                        className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-8"
-                        onClick={() => setPreviewImage(null)}
-                    >
-                        <div className="relative max-w-4xl max-h-full">
-                            <button
-                                onClick={() => setPreviewImage(null)}
-                                className="absolute -top-12 right-0 p-2 rounded-lg text-white hover:bg-white/10 transition-colors"
-                            >
-                                <X size={24} />
-                            </button>
-                            <img
-                                src={previewImage.outputUrl || previewImage.originalUrl}
-                                alt={previewImage.originalName}
-                                className="max-w-full max-h-[80vh] rounded-xl"
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                            <div className="mt-4 text-center">
-                                <p className="text-white font-medium">{previewImage.originalName}</p>
-                                <p className="text-sm text-[var(--color-text-muted)]">
-                                    {previewImage.outputUrl ? `${previewImage.targetWidth}×${previewImage.targetHeight}` : `${previewImage.originalWidth}×${previewImage.originalHeight}`}
-                                    {previewImage.outputSize && ` • ${formatFileSize(previewImage.outputSize)}`}
-                                </p>
-                            </div>
+            {/* Preview Modal */}
+            {previewImage && (
+                <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPreviewImage(null)}>
+                    <div className="relative max-w-3xl max-h-full">
+                        <button onClick={() => setPreviewImage(null)} className="absolute -top-10 right-0 p-2 rounded text-white hover:bg-white/10">
+                            <X size={20} />
+                        </button>
+                        <img
+                            src={previewImage.outputUrl || previewImage.originalUrl}
+                            alt={previewImage.originalName}
+                            className="max-w-full max-h-[75vh] rounded-lg"
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                        <div className="mt-2 text-center">
+                            <p className="text-white text-sm font-medium">{previewImage.originalName}</p>
+                            <p className="text-xs text-[var(--color-text-muted)]">
+                                {previewImage.outputUrl ? `${previewImage.targetWidth}×${previewImage.targetHeight}` : `${previewImage.originalWidth}×${previewImage.originalHeight}`}
+                                {previewImage.outputSize && ` • ${formatFileSize(previewImage.outputSize)}`}
+                            </p>
+                            {previewImage.status === 'done' && (
+                                <div className="mt-2 flex items-center justify-center gap-1 text-[var(--color-active-green)]">
+                                    <CheckCircle2 size={14} />
+                                    <span className="text-xs font-medium">Successfully Scaled</span>
+                                </div>
+                            )}
                         </div>
                     </div>
-                )}
-
-                <canvas ref={canvasRef} className="hidden" />
-            </div>
+                </div>
+            )}
         </div>
     );
 }
