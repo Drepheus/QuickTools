@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Zap, FileAudio, ImageIcon, Calculator, FileText, Lock, QrCode, Palette, Clock } from 'lucide-react';
+import { Zap, FileAudio, ImageIcon, FileText, Video, ScanText, DollarSign, Calculator, Lock, QrCode, Palette, Clock } from 'lucide-react';
 import type { ToolStatus } from '../types';
 
 interface ToolItem {
@@ -33,6 +33,36 @@ const tools: ToolItem[] = [
         status: 'active',
         usageCount: 18234,
         path: '/tools/image-scaler',
+    },
+    {
+        id: 'paystub-generator',
+        name: 'Paystub Generator',
+        description: 'Create professional pay stubs with automatic calculations and PDF export.',
+        icon: <DollarSign size={28} />,
+        category: 'Finance',
+        status: 'active',
+        usageCount: 15890,
+        path: '/tools/paystub-generator',
+    },
+    {
+        id: 'ocr-editor',
+        name: 'OCR Text Editor',
+        description: 'Extract and edit text from images and scanned documents instantly.',
+        icon: <ScanText size={28} />,
+        category: 'Document',
+        status: 'active',
+        usageCount: 12456,
+        path: '/tools/ocr-editor',
+    },
+    {
+        id: 'video-downloader',
+        name: 'Video Downloader',
+        description: 'Download videos from YouTube, Vimeo, and other platforms in any format.',
+        icon: <Video size={28} />,
+        category: 'Media',
+        status: 'active',
+        usageCount: 31245,
+        path: '/tools/video-downloader',
     },
     {
         id: 'calculator',
@@ -136,12 +166,12 @@ export function HomePage() {
                     {/* Stats */}
                     <div className="flex items-center justify-center gap-8 md:gap-16">
                         <div className="flex flex-col">
-                            <span className="text-3xl font-bold text-white">8+</span>
+                            <span className="text-3xl font-bold text-white">11+</span>
                             <span className="text-sm text-[var(--color-text-muted)]">Free Tools</span>
                         </div>
                         <div className="w-px h-12 bg-[var(--color-dark-400)]" />
                         <div className="flex flex-col">
-                            <span className="text-3xl font-bold text-white">50K+</span>
+                            <span className="text-3xl font-bold text-white">100K+</span>
                             <span className="text-sm text-[var(--color-text-muted)]">Daily Uses</span>
                         </div>
                         <div className="w-px h-12 bg-[var(--color-dark-400)]" />
